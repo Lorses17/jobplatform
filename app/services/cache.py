@@ -6,12 +6,12 @@ class CacheService:
     def __init__(self):
         self.redis: Optional[aioredis.Redis] = None
 
+    # В файле app/services/cache.py метод init_redis должен быть таким:
     def init_redis(self):
-        """Инициализация асинхронного клиента Redis."""
         self.redis = aioredis.from_url(
             f"redis://{settings.REDIS_HOST}:{settings.REDIS_PORT}",
             encoding="utf-8",
-            decode_responses=True  # Автоматически декодирует bytes в str
+            decode_responses=True
         )
 
     async def set_cache(self, key: str, value: str, expire_seconds: int = 300):

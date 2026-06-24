@@ -39,26 +39,30 @@ async def register(user_in: UserCreate, db: AsyncSession = Depends(get_db)):
     return new_user
 
 
-@router.post("/login", response_model=Token)
-async def login(credentials: UserLogin, db: AsyncSession = Depends(get_db)):
-    """Аутентификация пользователя и выдача JWT токенов."""
-    # Ищем пользователя по email
-    result = await db.execute(select(User).where(User.email == credentials.email))
+@router.post("/login")
+async def login(
+    user_in: UserLogin,
+    db: AsyncSession = Depends(get_db)
+):
+    # 1. Ищем пользователя по email
+    result = await db.execute(select(User).where(User.email == user_in.email))
     user = result.scalar_one_or_none()
 
-    # Проверяем существование пользователя и валидность пароля
-    if not user or not verify_password(credentials.password, user.hashed_password):
+    # 2. Проверяем существование пользователя и его пароль
+    if not user or not verify_password(user_in.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Неверный email или пароль",
-            headers={"WWW-Authenticate": "Bearer"},
+            detail="Неверный email или пароль"
         )
 
-    # Генерируем токены (передаем id пользователя в качестве subject)
-    access_token = create_access_token(subject=user.id)
-    refresh_token = create_refresh_token(subject=user.id)
+    # 3. ГЕНЕРИРУЕМ НАСТОЯЩИЙ ТОКЕН НА ОСНОВЕ ДАННЫХ ИЗ БД
+    # Все строки ниже должны иметь ОДИНАКОВЫЙ отступ (4 пробела от края def)
+    user_role = user.role.value if hasattr(user.role, 'value') else str(user.role)
 
-    return Token(
-        access_token=access_token,
-        refresh_token=refresh_token
-    )
+    # Передаем реальный ID и реальную роль пользователя
+    access_token = create_access_token(subject=user.id, role=user_role)
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer"
+    }

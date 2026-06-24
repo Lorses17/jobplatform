@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status ,UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 
@@ -8,38 +8,39 @@ from app.models.user import User, UserRole
 from app.models.resume import Resume
 from app.schemas.resume import ResumeCreate, ResumeResponse
 from app.services.s3 import s3_service
+import time
 router = APIRouter(prefix="/resumes", tags=["Resumes"])
 
 
-@router.post("", response_model=ResumeResponse, status_code=status.HTTP_201_CREATED)
-async def create_resume(
+@router.post("", response_model=ResumeResponse, status_code=status.HTTP_200_OK)
+async def save_or_update_resume(
         resume_in: ResumeCreate,
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    """Создать резюме (доступно только соискателям, у которых еще нет резюме)."""
-    # Проверяем, что пользователь — соискатель
+    """Создать или обновить резюме (автоматический Upsert)."""
     if current_user.role != UserRole.SEEKER:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Создавать резюме могут только соискатели"
+            detail="Работать с резюме могут только соискатели"
         )
 
-    # Проверяем, нет ли уже созданного резюме
+    # Ищем, есть ли уже резюме
     result = await db.execute(select(Resume).where(Resume.user_id == current_user.id))
-    existing_resume = result.scalar_one_or_none()
+    resume = result.scalar_one_or_none()
 
-    if existing_resume:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="У вас уже создано резюме. Используйте PUT для его обновления."
-        )
+    if resume:
+        # Если резюme существует — обновляем его поля
+        for key, value in resume_in.model_dump().items():
+            setattr(resume, key, value)
+    else:
+        # Если резюме нет — создаем новое
+        resume = Resume(**resume_in.model_dump(), user_id=current_user.id)
+        db.add(resume)
 
-    new_resume = Resume(**resume_in.model_dump(), user_id=current_user.id)
-    db.add(new_resume)
     await db.commit()
-    await db.refresh(new_resume)
-    return new_resume
+    await db.refresh(resume)
+    return resume
 
 
 @router.get("/me", response_model=ResumeResponse)
@@ -59,30 +60,45 @@ async def get_my_resume(
     return resume
 
 
+@router.delete("/me", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_resume(
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """Удалить резюме текущего авторизованного соискателя."""
+    result = await db.execute(select(Resume).where(Resume.user_id == current_user.id))
+    resume = result.scalar_one_or_none()
+
+    if not resume:
+        raise HTTPException(status_code=404, detail="Резюме не найдено")
+
+    await db.delete(resume)
+    await db.commit()
+    return None
+
+
 @router.post("/upload-pdf", response_model=ResumeResponse)
 async def upload_resume_pdf(
         file: UploadFile = File(...),
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    """Загрузить PDF-файл для резюме текущего пользователя."""
+    """Загрузить PDF-файл для резюме текущего пользователя с уникальным именем."""
     if current_user.role != UserRole.SEEKER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Только соискатели могут загружать резюме")
 
-    # Валидация формата файла
     if file.content_type != "application/pdf":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Допускаются только файлы формата PDF")
 
-    # Проверяем, создано ли вообще текстовое резюме
     result = await db.execute(select(Resume).where(Resume.user_id == current_user.id))
     resume = result.scalar_one_or_none()
 
     if not resume:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
-                            detail="Сначала создайте профиль резюме через POST")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Сначала создайте профиль резюме через POST")
 
-    # Генерируем уникальное имя файла на основе ID пользователя
-    object_name = f"user_{current_user.id}_resume.pdf"
+    # Генерируем уникальное имя: добавляем текущее время (Unix Timestamp)
+    timestamp = int(time.time())
+    object_name = f"user_{current_user.id}_resume_{timestamp}.pdf"
 
     # Загружаем в S3 через наш сервис
     file_url = await s3_service.upload_file(file, object_name)
