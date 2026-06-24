@@ -109,3 +109,15 @@ async def upload_resume_pdf(
     await db.refresh(resume)
 
     return resume
+
+@router.get("/{resume_id}", response_model=ResumeResponse)
+async def get_resume_by_id(
+    resume_id: int,
+    db: AsyncSession = Depends(get_db)
+):
+    """Получить детальную информацию о резюме по его ID"""
+    result = await db.execute(select(Resume).where(Resume.id == resume_id))
+    resume = result.scalar_one_or_none()
+    if not resume:
+        raise HTTPException(status_code=404, detail="Резюме не найдено")
+    return resume

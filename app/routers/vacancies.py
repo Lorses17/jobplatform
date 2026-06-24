@@ -135,3 +135,23 @@ async def get_my_vacancies_applications(
 
     # Возвращаем список вакансий, внутри которых фронтенд сможет прочитать отклики
     return vacancies
+
+
+@router.get("/company/my/vacancies", response_model=list[VacancyResponse])
+async def get_my_company_vacancies(
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_employer)
+):
+    """Получить список вакансий, принадлежащих ТОЛЬКО компании текущего работодателя."""
+    # 1. Сначала находим компанию этого пользователя
+    comp_result = await db.execute(select(Company).where(Company.owner_id == current_user.id))
+    company = comp_result.scalar_one_or_none()
+
+    if not company:
+        return []  # Если компании нет, то и вакансий у неё быть не может
+
+    # 2. Вытаскиваем только те вакансии, у которых company_id равен ID нашей компании
+    query = select(Vacancy).where(Vacancy.company_id == company.id)
+    result = await db.execute(query)
+
+    return result.scalars().all()

@@ -107,3 +107,28 @@ async def update_application_status(
     await db.commit()
     await db.refresh(application)
     return application
+
+
+@router.get("/my", response_model=list[ApplicationResponse])
+async def get_my_applications(
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_user)
+):
+    """Просмотр собственных откликов соискателя."""
+    if current_user.role != UserRole.SEEKER:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Доступно только соискателям"
+        )
+
+    # 1. Сначала находим резюме соискателя, чтобы узнать его ID
+    resume_result = await db.execute(select(Resume).where(Resume.user_id == current_user.id))
+    resume = resume_result.scalar_one_or_none()
+
+    if not resume:
+        return []
+
+    # 2. Выбираем все отклики, которые привязаны к этому резюме
+    query = select(Application).where(Application.resume_id == resume.id)
+    result = await db.execute(query)
+    return result.scalars().all()
