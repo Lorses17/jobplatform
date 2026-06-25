@@ -155,3 +155,37 @@ async def get_my_company_vacancies(
     result = await db.execute(query)
 
     return result.scalars().all()
+
+
+@router.patch("/vacancies/{vacancy_id}/status", response_model=VacancyResponse)
+async def update_vacancy_status(
+        vacancy_id: int,
+        status_update: dict,  # или создай Pydantic-схему VacancyStatusUpdate
+        db: AsyncSession = Depends(get_db),
+        current_user: User = Depends(get_current_employer)
+):
+    """Изменить статус вакансии (например, на 'closed')"""
+    new_status = status_update.get("status")
+    if new_status not in ["active", "closed"]:
+        raise HTTPException(status_code=400, detail="Недопустимый статус")
+
+    # Находим вакансию
+    result = await db.execute(select(Vacancy).where(Vacancy.id == vacancy_id))
+    vacancy = result.scalar_one_or_none()
+
+    if not vacancy:
+        raise HTTPException(status_code=404, detail="Вакансия не найдена")
+
+    # Проверяем, что эту вакансию закрывает именно тот работодатель, который её создал
+    comp_result = await db.execute(select(Company).where(Company.owner_id == current_user.id))
+    company = comp_result.scalar_one_or_none()
+
+    if not company or vacancy.company_id != company.id:
+        raise HTTPException(status_code=403, detail="У вас нет прав на редактирование этой вакансии")
+
+    # Обновляем статус
+    vacancy.status = new_status
+    await db.commit()
+    await db.refresh(vacancy)
+
+    return vacancy
