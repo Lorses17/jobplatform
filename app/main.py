@@ -13,6 +13,7 @@ from app.services.cache import cache_service
 from app.routers import auth, vacancies, resumes, applications
 from app.routers.companies import router as companies_router
 from app.routers.chats import router as chat_router
+
 # Исправление для работы асинхронности на Windows
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -66,7 +67,7 @@ origins = [
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

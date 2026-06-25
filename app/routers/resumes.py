@@ -83,7 +83,7 @@ async def upload_resume_pdf(
         db: AsyncSession = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ):
-    """Загрузить PDF-файл для резюме текущего пользователя с уникальным именем."""
+    """Загрузить PDF-файл для резюме текущего пользователя с фиксированным именем (с автозаменой)."""
     if current_user.role != UserRole.SEEKER:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Только соискатели могут загружать резюме")
 
@@ -96,11 +96,11 @@ async def upload_resume_pdf(
     if not resume:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Сначала создайте профиль резюме через POST")
 
-    # Генерируем уникальное имя: добавляем текущее время (Unix Timestamp)
-    timestamp = int(time.time())
-    object_name = f"user_{current_user.id}_resume_{timestamp}.pdf"
+    # ИСПРАВЛЕНО: Убираем timestamp. Теперь имя всегда статичное для этого пользователя.
+    # Старый файл в MinIO автоматически заменится новым актуальным!
+    object_name = f"user_{current_user.id}_resume.pdf"
 
-    # Загружаем в S3 через наш сервис
+    # Загружаем в S3 через твой сервис
     file_url = await s3_service.upload_file(file, object_name)
 
     # Обновляем ссылку в базе данных
@@ -109,7 +109,6 @@ async def upload_resume_pdf(
     await db.refresh(resume)
 
     return resume
-
 @router.get("/{resume_id}", response_model=ResumeResponse)
 async def get_resume_by_id(
     resume_id: int,
