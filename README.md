@@ -17,6 +17,9 @@ alembic upgrade head
 uvicorn app.main:app --reload
 
 Изменения приватности бакета через контейнер
+
 mc alias set myminio http://minio:9000 ACCESS_KEY SECRET_KEY
+
 mc anonymous set download myminio/resumes
+
 mc anonymous list myminio/resumes
